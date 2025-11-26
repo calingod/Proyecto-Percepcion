@@ -1,0 +1,86 @@
+services:
+  namenode:
+    image: bde2020/hadoop-namenode:2.0.0-hadoop3.2.1-java8
+    container_name: namenode
+    environment:
+      - CLUSTER_NAME=hadoop-cluster
+      - CORE_CONF_fs_defaultFS=hdfs://namenode:9000
+    ports:
+      - "9870:9870"   # UI HDFS
+      - "9000:9000"   # RPC HDFS
+    volumes:
+      - hadoop_namenode:/hadoop/dfs/name
+      - ../data_split:/data_split
+    networks:
+      - mlnet
+
+  datanode:
+    image: bde2020/hadoop-datanode:2.0.0-hadoop3.2.1-java8
+    container_name: datanode
+    environment:
+      - CLUSTER_NAME=hadoop-cluster
+      - CORE_CONF_fs_defaultFS=hdfs://namenode:9000
+    volumes:
+      - hadoop_datanode:/hadoop/dfs/data
+    depends_on:
+      - namenode
+    networks:
+      - mlnet
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    container_name: zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "2181:2181"
+    networks:
+      - mlnet
+
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: kafka
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+    networks:
+      - mlnet
+
+  app:
+    build:
+      context: ../app
+      dockerfile: ../docker/Dockerfile.app
+    container_name: meat-quality-app
+    working_dir: /workspace/app
+    volumes:
+      - ../app:/workspace/app
+      - ../data_split:/workspace/data_split
+      - ../imagen_prueba:/workspace/imagen_prueba
+    environment:
+      DATA_DIR: /workspace/data_split
+      HDFS_URI: hdfs://namenode:9000
+      KAFKA_BROKER: kafka:9092
+    depends_on:
+      - namenode
+      - datanode
+      - kafka
+    networks:
+      - mlnet
+    command: bash
+
+networks:
+  mlnet:
+
+volumes:
+  hadoop_namenode:
+  hadoop_datanode:
+
