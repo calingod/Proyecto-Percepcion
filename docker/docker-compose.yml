@@ -1,8 +1,6 @@
-version: "3.9"
-
 services:
   namenode:
-    image: bde2020/hadoop-namenode:2.0.0-hadoop3.3.2-java8
+    image: bde2020/hadoop-namenode:2.0.0-hadoop3.2.1-java8
     container_name: namenode
     environment:
       - CLUSTER_NAME=hadoop-cluster
@@ -12,13 +10,12 @@ services:
       - "9000:9000"   # RPC HDFS
     volumes:
       - hadoop_namenode:/hadoop/dfs/name
-      # montamos tu data_split dentro del contenedor para poder subirla a HDFS
       - ../data_split:/data_split
     networks:
       - mlnet
 
   datanode:
-    image: bde2020/hadoop-datanode:2.0.0-hadoop3.3.2-java8
+    image: bde2020/hadoop-datanode:2.0.0-hadoop3.2.1-java8
     container_name: datanode
     environment:
       - CLUSTER_NAME=hadoop-cluster
@@ -30,31 +27,12 @@ services:
     networks:
       - mlnet
 
-  spark-master:
-    image: bitnami/spark:3
-    container_name: spark-master
-    environment:
-      - SPARK_MODE=master
-    ports:
-      - "7077:7077"
-      - "8080:8080"   # UI Spark
-    networks:
-      - mlnet
-
-  spark-worker:
-    image: bitnami/spark:3
-    container_name: spark-worker
-    environment:
-      - SPARK_MODE=worker
-      - SPARK_MASTER_URL=spark://spark-master:7077
-    depends_on:
-      - spark-master
-    networks:
-      - mlnet
-
   zookeeper:
-    image: zookeeper:3.9
+    image: confluentinc/cp-zookeeper:7.5.0
     container_name: zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
     ports:
       - "2181:2181"
     networks:
@@ -74,7 +52,6 @@ services:
       KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
     networks:
       - mlnet
 
@@ -87,19 +64,18 @@ services:
     volumes:
       - ../app:/workspace/app
       - ../data_split:/workspace/data_split
+      - ../imagen_prueba:/workspace/imagen_prueba
     environment:
-      - DATA_DIR=/workspace/data_split
-      - HDFS_URI=hdfs://namenode:9000
-      - SPARK_MASTER=spark://spark-master:7077
-      - KAFKA_BROKER=kafka:9092
+      DATA_DIR: /workspace/data_split
+      HDFS_URI: hdfs://namenode:9000
+      KAFKA_BROKER: kafka:9092
     depends_on:
       - namenode
-      - spark-master
+      - datanode
       - kafka
     networks:
       - mlnet
-    # Cuando ejecutes contenedor para entrenar:
-    # docker compose run --rm --gpus all app python entrenar_meat_quality.py
+    command: bash
 
 networks:
   mlnet:
