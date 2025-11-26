@@ -13,9 +13,9 @@ WORKDIR /workspace/app
 
 # Copiamos requirements y los instalamos
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir --ignore-installed blinker -r requirements.txt
 
 # Copiamos el código de la app
 COPY . .
 
-CMD ["bash"]
+CMD ["gunicorn", "-w", "2", "-b", "0.0.0.0:5000", "web_app:app"]

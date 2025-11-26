@@ -65,10 +65,13 @@ services:
       - ../app:/workspace/app
       - ../data_split:/workspace/data_split
       - ../imagen_prueba:/workspace/imagen_prueba
+    ports:
+      - "5000:5000"
     environment:
       DATA_DIR: /workspace/data_split
       HDFS_URI: hdfs://namenode:9000
       KAFKA_BROKER: kafka:9092
+      MODEL_PATH: /workspace/app/modelo_meat_quality_v3_last.keras
     depends_on:
       - namenode
       - datanode

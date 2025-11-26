@@ -2,6 +2,8 @@ import os
 import tensorflow as tf
 from tensorflow import keras
 from tensorflow.keras import layers
+import mlflow
+import mlflow.keras
 
 # ========== CONFIGURACIÓN ==========
 IMG_SIZE = (224, 224)
@@ -87,31 +89,47 @@ callbacks = [
     )
 ]
 
-# ========== ENTRENAMIENTO BASE ==========
-print("\n=== ENTRENAMIENTO BASE ===")
-model.fit(
-    train_ds,
-    validation_data=val_ds,
-    epochs=EPOCHS_BASE,
-    callbacks=callbacks
-)
+# ========== CONFIGURAR MLFLOW ==========
+mlflow.set_tracking_uri("file:/workspace/mlruns")
+mlflow.set_experiment("meat_quality_experiments")
 
-# ========== FINE-TUNING ==========
-print("\n=== FINE-TUNING ===")
-base_model.trainable = True
+with mlflow.start_run():
+    # Log de hiperparámetros
+    mlflow.log_param("img_size", IMG_SIZE)
+    mlflow.log_param("batch_size", BATCH_SIZE)
+    mlflow.log_param("epochs_base", EPOCHS_BASE)
+    mlflow.log_param("epochs_fine", EPOCHS_FINE)
 
-model.compile(
-    optimizer=keras.optimizers.Adam(learning_rate=1e-5),
-    loss="binary_crossentropy",
-    metrics=["accuracy"]
-)
+    print("\n=== ENTRENAMIENTO BASE ===")
+    history_base = model.fit(
+        train_ds,
+        validation_data=val_ds,
+        epochs=EPOCHS_BASE,
+        callbacks=callbacks
+    )
 
-model.fit(
-    train_ds,
-    validation_data=val_ds,
-    epochs=EPOCHS_FINE
-)
+    # Log de métricas del último epoch base
+    mlflow.log_metric("base_val_accuracy", history_base.history["val_accuracy"][-1])
 
-# ========== GUARDADO FINAL ==========
-model.save(MODEL_NAME)
-print(f"\nModelo guardado como: {MODEL_NAME}")
+    print("\n=== FINE-TUNING ===")
+    base_model.trainable = True
+    model.compile(
+        optimizer=keras.optimizers.Adam(learning_rate=1e-5),
+        loss="binary_crossentropy",
+        metrics=["accuracy"]
+    )
+    history_fine = model.fit(
+        train_ds,
+        validation_data=val_ds,
+        epochs=EPOCHS_FINE
+    )
+
+    mlflow.log_metric("fine_val_accuracy", history_fine.history["val_accuracy"][-1])
+
+    # Guardado final
+    model.save(MODEL_NAME)
+    print(f"\nModelo guardado como: {MODEL_NAME}")
+
+    # Registrar el modelo en MLflow
+    mlflow.keras.log_model(model, "meat_quality_model")
+

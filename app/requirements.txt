@@ -6,3 +6,6 @@ numpy
 matplotlib
 pillow
 scikit-learn
+mlflow
+flask
+gunicorn
