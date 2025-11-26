@@ -33,7 +33,7 @@ def main():
         sys.exit(1)
 
     image_path = sys.argv[1]
-    model_path = os.environ.get("MODEL_PATH", "modelo_meat_quality_v3.keras")
+    model_path = os.environ.get("MODEL_PATH", "modelo_meat_quality_v3_last.keras")
 
     model = load_model(model_path)
     predict_image(model, image_path)
