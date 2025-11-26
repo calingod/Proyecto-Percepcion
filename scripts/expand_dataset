@@ -1,0 +1,20 @@
+# scripts/expand_dataset.py
+import os, shutil, uuid
+
+BASE_DIR = "data_split/train"
+TARGET_MULTIPLIER = 30  # 30x más imágenes
+
+for cls in ["Fresh", "Spoiled"]:
+    folder = os.path.join(BASE_DIR, cls)
+    imgs = [f for f in os.listdir(folder) if f.lower().endswith((".jpg", ".jpeg", ".png"))]
+    original = len(imgs)
+    target = original * TARGET_MULTIPLIER
+
+    i = 0
+    while len(os.listdir(folder)) < target:
+        src = os.path.join(folder, imgs[i % original])
+        dst = os.path.join(folder, f"{uuid.uuid4().hex}.jpg")
+        shutil.copy2(src, dst)
+        i += 1
+
+    print(cls, "→", len(os.listdir(folder)), "imágenes")
