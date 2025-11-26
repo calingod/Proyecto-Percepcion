@@ -1,52 +1,46 @@
-import tensorflow as tf
-from tensorflow.keras.preprocessing import image
+import os
+import sys
 import numpy as np
-import matplotlib.pyplot as plt
+import tensorflow as tf
 
-# === RUTAS ===
-modelo_path = r"D:\UPAO\CICLO VII\MACHINE LEARNING\ProyectoCarnesV2\modelo_meat_quality_v3.h5"
-imagen_path = r"D:\UPAO\CICLO VII\MACHINE LEARNING\ProyectoCarnesV2\imagen_prueba\carne_fresca.jpg"
+IMG_SIZE = (224, 224)
+CLASS_NAMES = ["Fresh", "Spoiled"]  # 0 = Fresh, 1 = Spoiled
 
-# === CARGAR MODELO ===
-model = tf.keras.models.load_model(modelo_path)
-print("✅ Modelo cargado correctamente")
 
-# === DETECTAR TAMAÑO DE ENTRADA ===
-input_shape = model.input_shape[1:3]
-print(f"📏 Tamaño de entrada del modelo: {input_shape}")
+def load_model(model_path: str):
+    print(f"Cargando modelo desde: {model_path}")
+    return tf.keras.models.load_model(model_path)
 
-# === CARGAR IMAGEN ===
-img = image.load_img(imagen_path, target_size=input_shape)
-x = image.img_to_array(img)
-x = np.expand_dims(x, axis=0)
-x = x / 255.0
 
-# === PREDICCIÓN ===
-pred = model.predict(x)
-clases = ['Fresh', 'Spoiled']
+def predict_image(model, image_path: str):
+    img = tf.keras.utils.load_img(image_path, target_size=IMG_SIZE)
+    x = tf.keras.utils.img_to_array(img)
+    x = np.expand_dims(x, axis=0)
 
-print("\n📈 Valores de predicción crudos:")
-print(pred)
+    prob = model.predict(x)[0][0]  # salida sigmoide
+    label_idx = 1 if prob >= 0.9 else 0
+    label = CLASS_NAMES[label_idx]
 
-if pred.shape[1] == 1:
-    # Salida sigmoide → probabilidad de clase 1 (Spoiled)
-    prob_spoiled = float(pred[0][0])
-    prob_fresh = 1 - prob_spoiled
-    etiqueta = clases[1] if prob_spoiled > 0.5 else clases[0]
-    prob_final = prob_spoiled if etiqueta == 'Spoiled' else prob_fresh
-else:
-    # Salida softmax → múltiples clases
-    idx = int(np.argmax(pred))
-    etiqueta = clases[idx]
-    prob_final = float(np.max(pred))
+    print(f"\nImagen: {image_path}")
+    print(f"Prob( Spoiled ) = {prob:.4f}")
+    print(f"Predicción: {label}")
+    return label, prob
 
-# === RESULTADO ===
-print("\n🔍 Resultado de la predicción:")
-print(f"➡️ La imagen es probablemente: {etiqueta}")
-print(f"📊 Confianza: {prob_final * 100:.4f}%")
 
-# === MOSTRAR IMAGEN ===
-plt.imshow(img)
-plt.axis('off')
-plt.title(f"Predicción: {etiqueta} ({prob_final * 100:.2f}% de confianza)")
-plt.show()
+def main():
+    if len(sys.argv) < 2:
+        print("Uso: python predecir_meat_quality.py ruta/de/imagen.jpg")
+        sys.exit(1)
+
+    image_path = sys.argv[1]
+
+    # Por defecto usamos el modelo .keras entrenado
+    model_path = os.environ.get("MODEL_PATH", "modelo_meat_quality_v3_last.keras")
+
+    model = load_model(model_path)
+    predict_image(model, image_path)
+
+
+if __name__ == "__main__":
+    main()
+

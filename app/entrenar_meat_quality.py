@@ -1,148 +1,117 @@
-# ===============================================================
-# ENTRENAMIENTO CNN - DETECCIÓN DE CALIDAD DE CARNE (FRESH/SPOILED)
-# ===============================================================
-
 import os
-import matplotlib.pyplot as plt
-import numpy as np
-import seaborn as sns
-from sklearn.metrics import classification_report, confusion_matrix
-from tensorflow.keras.preprocessing.image import ImageDataGenerator
-from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import Conv2D, MaxPooling2D, Flatten, Dense, Dropout
-from tensorflow.keras.optimizers import Adam
-from tensorflow.keras.callbacks import EarlyStopping
+import tensorflow as tf
+from tensorflow import keras
+from tensorflow.keras import layers
 
-# ===============================================================
-# RUTAS
-# ===============================================================
-base_dir = r"D:\UPAO\CICLO VII\MACHINE LEARNING\ProyectoCarnesV2"
-data_dir = os.path.join(base_dir, "data")
-split_dir = os.path.join(base_dir, "data_split")
+# ========== CONFIGURACIÓN ==========
+IMG_SIZE = (224, 224)
+BATCH_SIZE = 32
+EPOCHS_BASE = 20
+EPOCHS_FINE = 15
 
-# ===============================================================
-# 1️⃣ DIVIDIR AUTOMÁTICAMENTE EL DATASET (70/20/10)
-# ===============================================================
-if not os.path.exists(split_dir):
-    splitfolders.ratio(data_dir, output=split_dir, seed=42, ratio=(0.7, 0.2, 0.1))
-    print("✅ Dataset dividido correctamente en train/val/test\n")
+DATA_DIR = os.environ.get("DATA_DIR", "/workspace/data_split")
+MODEL_NAME = "modelo_meat_quality_v3_last.keras"
 
-# ===============================================================
-# 2️⃣ GENERADORES DE IMÁGENES
-# ===============================================================
-datagen = ImageDataGenerator(rescale=1./255)
+# ========== DATASET ==========
+print(f"Usando DATA_DIR = {DATA_DIR}")
 
-train_gen = datagen.flow_from_directory(
-    os.path.join(split_dir, "train"),
-    target_size=(128, 128),
-    batch_size=32,
-    class_mode='binary'
+train_ds = keras.utils.image_dataset_from_directory(
+    os.path.join(DATA_DIR, "train"),
+    image_size=IMG_SIZE,
+    batch_size=BATCH_SIZE,
+    label_mode="binary",
+    shuffle=True
 )
 
-val_gen = datagen.flow_from_directory(
-    os.path.join(split_dir, "val"),
-    target_size=(128, 128),
-    batch_size=32,
-    class_mode='binary'
+val_ds = keras.utils.image_dataset_from_directory(
+    os.path.join(DATA_DIR, "val"),
+    image_size=IMG_SIZE,
+    batch_size=BATCH_SIZE,
+    label_mode="binary",
+    shuffle=True
 )
 
-test_gen = datagen.flow_from_directory(
-    os.path.join(split_dir, "test"),
-    target_size=(128, 128),
-    batch_size=32,
-    class_mode='binary',
-    shuffle=False
-)
+print("Clases detectadas por Keras:", train_ds.class_names)
 
-print(f"\n📁 Train: {train_gen.samples}")
-print(f"📁 Validation: {val_gen.samples}")
-print(f"📁 Test: {test_gen.samples}\n")
+# ========== OPTIMIZACIÓN PIPELINE ==========
+AUTOTUNE = tf.data.AUTOTUNE
+train_ds = train_ds.cache().prefetch(buffer_size=AUTOTUNE)
+val_ds = val_ds.cache().prefetch(buffer_size=AUTOTUNE)
 
-# ===============================================================
-# 3️⃣ MODELO CNN
-# ===============================================================
-model = Sequential([
-    Conv2D(32, (3,3), activation='relu', input_shape=(128,128,3)),
-    MaxPooling2D(2,2),
-
-    Conv2D(64, (3,3), activation='relu'),
-    MaxPooling2D(2,2),
-
-    Conv2D(128, (3,3), activation='relu'),
-    MaxPooling2D(2,2),
-
-    Flatten(),
-    Dense(128, activation='relu'),
-    Dropout(0.5),
-    Dense(1, activation='sigmoid')
+# ========== DATA AUGMENTATION ==========
+data_augmentation = keras.Sequential([
+    layers.RandomFlip("horizontal"),
+    layers.RandomRotation(0.05),
+    layers.RandomZoom(0.1),
 ])
 
-model.compile(optimizer=Adam(learning_rate=0.0001),
-              loss='binary_crossentropy',
-              metrics=['accuracy'])
-
-# ===============================================================
-# 4️⃣ ENTRENAMIENTO
-# ===============================================================
-early_stop = EarlyStopping(monitor='val_loss', patience=3, restore_best_weights=True)
-
-history = model.fit(
-    train_gen,
-    epochs=15,
-    validation_data=val_gen,
-    callbacks=[early_stop],
-    verbose=1
+# ========== MODELO BASE ==========
+base_model = keras.applications.MobileNetV2(
+    input_shape=IMG_SIZE + (3,),
+    include_top=False,
+    weights="imagenet"
 )
 
-# ===============================================================
-# 5️⃣ EVALUACIÓN
-# ===============================================================
-test_loss, test_acc = model.evaluate(test_gen)
-print(f"\n✅ Precisión en el conjunto de prueba: {test_acc:.4f}")
+base_model.trainable = False  # Congelamos primero
 
-# ===============================================================
-# 6️⃣ PREDICCIONES Y MÉTRICAS
-# ===============================================================
-y_pred = model.predict(test_gen)
-y_pred_classes = (y_pred > 0.5).astype(int).flatten()
-y_true = test_gen.classes
+# ========== MODELO COMPLETO ==========
+inputs = keras.Input(shape=IMG_SIZE + (3,))
+x = data_augmentation(inputs)
+x = keras.layers.Rescaling(1./255)(x)
+x = base_model(x, training=False)
+x = layers.GlobalAveragePooling2D()(x)
+x = layers.Dense(128, activation="relu")(x)
+x = layers.Dropout(0.3)(x)
+outputs = layers.Dense(1, activation="sigmoid")(x)
 
-print("\n📊 Reporte de Clasificación:\n")
-print(classification_report(y_true, y_pred_classes, target_names=list(test_gen.class_indices.keys())))
+model = keras.Model(inputs, outputs, name="meat_quality_cnn")
 
-# MATRIZ DE CONFUSIÓN
-cm = confusion_matrix(y_true, y_pred_classes)
-plt.figure(figsize=(6,5))
-sns.heatmap(cm, annot=True, fmt='d', cmap='Blues',
-            xticklabels=list(test_gen.class_indices.keys()),
-            yticklabels=list(test_gen.class_indices.keys()))
-plt.title("Matriz de Confusión")
-plt.xlabel("Predicción")
-plt.ylabel("Real")
-plt.show()
+model.compile(
+    optimizer=keras.optimizers.Adam(learning_rate=1e-3),
+    loss="binary_crossentropy",
+    metrics=["accuracy"]
+)
 
-# CURVAS DE ENTRENAMIENTO
-plt.figure(figsize=(10,4))
-plt.subplot(1,2,1)
-plt.plot(history.history['accuracy'], label='Entrenamiento')
-plt.plot(history.history['val_accuracy'], label='Validación')
-plt.title('Precisión del modelo')
-plt.xlabel('Épocas')
-plt.ylabel('Accuracy')
-plt.legend()
+model.summary()
 
-plt.subplot(1,2,2)
-plt.plot(history.history['loss'], label='Entrenamiento')
-plt.plot(history.history['val_loss'], label='Validación')
-plt.title('Pérdida del modelo')
-plt.xlabel('Épocas')
-plt.ylabel('Loss')
-plt.legend()
-plt.tight_layout()
-plt.show()
+# ========== CALLBACKS ==========
+callbacks = [
+    keras.callbacks.ModelCheckpoint(
+        MODEL_NAME,
+        save_best_only=True,
+        monitor="val_accuracy"
+    ),
+    keras.callbacks.EarlyStopping(
+        patience=3,
+        restore_best_weights=True
+    )
+]
 
-# ===============================================================
-# 7️⃣ GUARDAR MODELO
-# ===============================================================
-model.save(os.path.join(base_dir, "modelo_meat_quality_v3.h5"))
-print("\n💾 Modelo guardado como 'modelo_meat_quality_v3.h5'")
+# ========== ENTRENAMIENTO BASE ==========
+print("\n=== ENTRENAMIENTO BASE ===")
+model.fit(
+    train_ds,
+    validation_data=val_ds,
+    epochs=EPOCHS_BASE,
+    callbacks=callbacks
+)
+
+# ========== FINE-TUNING ==========
+print("\n=== FINE-TUNING ===")
+base_model.trainable = True
+
+model.compile(
+    optimizer=keras.optimizers.Adam(learning_rate=1e-5),
+    loss="binary_crossentropy",
+    metrics=["accuracy"]
+)
+
+model.fit(
+    train_ds,
+    validation_data=val_ds,
+    epochs=EPOCHS_FINE
+)
+
+# ========== GUARDADO FINAL ==========
+model.save(MODEL_NAME)
+print(f"\nModelo guardado como: {MODEL_NAME}")

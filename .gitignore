@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.pyc
+
+# Modelos
+*.keras
+*.h5
+
+# Datos
+data_split/
+
+# Docker temporales
+*.log
+
+# Sistema
+.DS_Store
+Thumbs.db

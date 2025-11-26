@@ -1,78 +1,48 @@
-from pyspark.sql import SparkSession
-from pyspark.sql.functions import lit, col
 import os
+from pyspark.sql import SparkSession
+from pyspark.sql.functions import input_file_name, regexp_extract, col
 
-# ------------------------------
-# Configuración de Spark
-# ------------------------------
-spark = SparkSession.builder \
-    .appName("PreprocesamientoCarne") \
-    .config("spark.driver.memory", "4g") \
-    .config("spark.executor.memory", "4g") \
-    .getOrCreate()
+HDFS_URI = os.environ.get("HDFS_URI", "hdfs://namenode:9000")
+SPARK_MASTER = os.environ.get("SPARK_MASTER", "spark://spark-master:7077")
 
-# Ruta base de tu proyecto
-base_dir = "/home/calingod/Escritorio/percep/ProyectoCarnesV2/data"
+def main():
+    spark = (
+        SparkSession.builder
+        .appName("MeatQualityPreprocess")
+        .master("local[*]")   # Spark local dentro del contenedor
+        .getOrCreate()
+    )
 
-fresh_path = os.path.join(base_dir, "Fresh")
-spoiled_path = os.path.join(base_dir, "Spoiled")
+    hdfs_path = f"{HDFS_URI}/meat_quality/train/*/*"
+    print(f"Leyendo imágenes desde: {hdfs_path}")
 
-# ------------------------------
-# Verificar existencia de carpetas
-# ------------------------------
-if not os.path.exists(fresh_path):
-    raise FileNotFoundError(f"La carpeta 'Fresh' no existe en {fresh_path}")
+    df = (
+        spark.read.format("binaryFile")
+        .option("pathGlobFilter", "*.jpg")
+        .option("recursiveFileLookup", "true")
+        .load(hdfs_path)
+        .withColumn("filename", input_file_name())
+    )
 
-if not os.path.exists(spoiled_path):
-    raise FileNotFoundError(f"La carpeta 'Spoiled' no existe en {spoiled_path}")
+    # Extraemos la etiqueta (Fresh/Spoiled) de la ruta
+    # asumiendo estructura /meat_quality/train/<label>/nombre.jpg
+    df = df.withColumn(
+        "label",
+        regexp_extract(col("filename"), r"/train/([^/]+)/", 1)
+    )
 
-print("📁 Leyendo imágenes con Spark...")
+    df.show(5, truncate=False)
 
-# ------------------------------
-# Leer imágenes
-# ------------------------------
-df_fresh = spark.read.format("image").load(fresh_path).withColumn("label", lit(0))
-df_spoiled = spark.read.format("image").load(spoiled_path).withColumn("label", lit(1))
+    counts = df.groupBy("label").count()
+    print("Conteo por clase en HDFS:")
+    counts.show()
 
-# ------------------------------
-# Unir datasets
-# ------------------------------
-df = df_fresh.union(df_spoiled)
+    out_path = f"{HDFS_URI}/meat_quality/summary_counts"
+    print(f"Guardando resumen en: {out_path}")
+    counts.write.mode("overwrite").parquet(out_path)
 
-# ------------------------------
-# Filtrar imágenes corruptas
-# ------------------------------
-df = df.filter(col("image").isNotNull())
+    spark.stop()
 
-# ------------------------------
-# Seleccionar solo la ruta y la etiqueta
-# ------------------------------
-df_light = df.select(col("image.origin").alias("path"), "label")
 
-# ------------------------------
-# Reducir particiones para evitar problemas de memoria
-# ------------------------------
-df_light = df_light.repartition(2)
-
-# ------------------------------
-# Mostrar información
-# ------------------------------
-print("\n📊 Total de imágenes cargadas:", df_light.count())
-df_light.show(10, truncate=False)
-
-# ------------------------------
-# Guardar como Parquet
-# ------------------------------
-output_path = "/home/calingod/Escritorio/percep/data_spark_clean"
-
-try:
-    df_light.write.mode("overwrite").parquet(output_path)
-    print(f"\n💾 Datos procesados guardados en: {output_path}")
-except Exception as e:
-    print("❌ Error al guardar Parquet:", e)
-
-# ------------------------------
-# Finalizar Spark
-# ------------------------------
-spark.stop()
-print("\n🟢 Spark finalizado correctamente.")
+if __name__ == "__main__":
+    main()
